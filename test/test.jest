@@ -1,0 +1,34 @@
+testui:
+	frame("TestUI",
+		horizontal(
+			string text;
+			label(text),
+			edit(text)))
+
+def testui:
+	frame:
+		"TestUI"
+		horizontal:
+			string text
+			label: text
+			edit: text
+
+testui =
+{
+	frame("TestUI",
+	{
+		string text;
+
+
+	})
+}
+
+testui = frame:
+
+	title = "TestUI"
+	child = horizontal:
+
+		string s
+
+		label(s)
+		edit(s)
