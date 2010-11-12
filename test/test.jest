@@ -1,34 +1,12 @@
-testui:
-	frame("TestUI",
-		horizontal(
-			string text;
-			label(text),
-			edit(text)))
+<testui n:int> =
+	<frame
 
-def testui:
-	frame:
-		"TestUI"
-		horizontal:
-			string text
-			label: text
-			edit: text
+		<foo x:string> =
+			<label x>
 
-testui =
-{
-	frame("TestUI",
-	{
-		string text;
+		s = lexical<n>
 
+		<horizontal
+			<foo s>
+			<edit s>>>
 
-	})
-}
-
-testui = frame:
-
-	title = "TestUI"
-	child = horizontal:
-
-		string s
-
-		label(s)
-		edit(s)
