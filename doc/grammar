@@ -56,6 +56,10 @@ parameter =
 // LL
 module = {define}
 
+define =
+	symbol_define
+	| form_define
+
 statement =
 	symbol_statement
 	| form_statement
@@ -71,21 +75,30 @@ symbol_expression =
 	ident
 
 form_statement =
-	form_define
-	| form_expression
+	"<" ident form_statement_tail
+
+form_statement_tail =
+	form_define_tail
+	| form_expression_tail
+
+form_define_tail =
+	prototype_tail "=" expression
+
+prototype_tail =
+	{parameter} ">"
+
+form_expression_tail =
+	{statement} ">"
 
 form_define =
-	prototype "=" expression
-
-prototype =
-	"<" ident {parameter} ">"
+	"<" ident form_define_tail
 
 parameter =
 	ident ":" ident
 
 expression =
-	ident
-	| call
+	form_expression
+	| symbol_expression
 
-call =
-	"<" ident {statement} ">"
+form_expression =
+	"<" ident form_expression_tail
