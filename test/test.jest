@@ -4,7 +4,7 @@
 		<foo x:string> =
 			<label x>
 
-		s = lexical<n>
+		s = <lexical n>
 
 		<horizontal
 			<foo s>
