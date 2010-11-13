@@ -1,4 +1,4 @@
-#include <stdio>
+#include <stdio.h>
 
 namespace jest
 {
@@ -9,7 +9,7 @@ namespace jest
 
 	namespace types
 	{
-		namespace detail {struct symbol_tag {};} void* symbol = detail::tag_of<detail::symbol_tag>();
+		namespace detail {struct symbol_tag {};} void* symbol = jest::detail::tag_of<detail::symbol_tag>();
 	}
 
 	struct typed_value
@@ -20,7 +20,7 @@ namespace jest
 
 	namespace types
 	{
-		namespace detail {struct typed_value_tag {};} void* typed_value = detail::tag_of<detail::typed_value_tag>();
+		namespace detail {struct typed_value_tag {};} void* typed_value = jest::detail::tag_of<detail::typed_value_tag>();
 	}
 
 	struct typed_cell
@@ -31,7 +31,7 @@ namespace jest
 
 	namespace types
 	{
-		namespace detail {struct typed_cell_tag {};} void* typed_cell = detail::tag_of<detail::typed_cell_tag>();
+		namespace detail {struct typed_cell_tag {};} void* typed_cell = jest::detail::tag_of<detail::typed_cell_tag>();
 	}
 
 	struct pattern
@@ -42,7 +42,7 @@ namespace jest
 
 	namespace pattern_types
 	{
-		namespace detail {struct symbol_tag {};} void* symbol = detail::tag_of<detail::symbol_tag>();
+		namespace detail {struct symbol_tag {};} void* symbol = jest::detail::tag_of<detail::symbol_tag>();
 	}
 
 	struct pattern_cell
@@ -53,7 +53,11 @@ namespace jest
 
 	namespace pattern_types
 	{
-		namespace detail {struct cell_tag {};} void* cell = detail::tag_of<detail::cell_tag>();
+		namespace detail {struct cell_tag {};} void* cell = jest::detail::tag_of<detail::cell_tag>();
+	}
+
+	namespace parsing
+	{
 	}
 }
 
