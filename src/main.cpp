@@ -1,4 +1,9 @@
 #include <stdio.h>
+#include <boost/shared_ptr.hpp>
+#include <boost/variant.hpp>
+#include <vector>
+#include <cctype>
+#include <cstdarg>
 
 namespace jest
 {
@@ -56,75 +61,593 @@ namespace jest
 		namespace detail {struct cell_tag {};} void* cell = jest::detail::tag_of<detail::cell_tag>();
 	}
 
+#define parse_assert(c, cond) \
+	do \
+	{ \
+		if (!cond) \
+		{ \
+			error((c), "internal parsing error: %s", #cond); \
+		} \
+	} while (0)
+
 	namespace parsing
 	{
-		//module = {define}
+		using boost::shared_ptr;
+		using boost::variant;
+		using std::vector;
+		using std::string;
+
+		typedef std::string identifier;
+
+		struct form;
+
+		typedef variant<
+			shared_ptr<parsing::identifier const>,
+			shared_ptr<parsing::form const> > expression;
+
+		struct parameter
+		{
+			parameter(shared_ptr<identifier const> const& name,
+					shared_ptr<expression const> const& type)
+				: name(name), type(type) {}
+
+			shared_ptr<identifier const> name;
+			shared_ptr<expression const> type;
+		};
+
+		struct prototype
+		{
+			prototype(shared_ptr<expression const> const& name,
+					vector<shared_ptr<parameter const> > const& parameters)
+				: name(name), parameters(parameters) {}
+			shared_ptr<expression const> name;
+			vector<shared_ptr<parameter const> > parameters;
+		};
+
+		typedef variant<
+			shared_ptr<parsing::identifier const>,
+			shared_ptr<parsing::prototype const> > target;
+
+		struct define;
+
+		typedef variant<
+			shared_ptr<parsing::define const>,
+			shared_ptr<parsing::expression const> > statement;
+
+		struct form
+		{
+			form(shared_ptr<expression const> const& head,
+					std::vector<shared_ptr<parsing::statement const> > const& statements)
+				: head(head), statements(statements) {}
+			shared_ptr<expression const> head;
+			std::vector<shared_ptr<parsing::statement const> > statements;
+		};
+
+		struct define
+		{
+			define(shared_ptr<parsing::target const> const& target,
+					shared_ptr<parsing::expression const> const& expression)
+				: target(target), expression(expression) {}
+			shared_ptr<parsing::target const> target;
+			shared_ptr<parsing::expression const> expression;
+		};
+
 		struct module
 		{
-			std::vector<boost::shared_ptr<define const> > defines;
+			module(std::vector<shared_ptr<parsing::define const> > const& defines)
+				: defines(defines) {}
+			std::vector<shared_ptr<parsing::define const> > defines;
 		};
+
+		enum symbol
+		{
+			eof,
+			ident,
+			lt,
+			gt,
+			colon,
+			equal
+		};
+		struct context
+		{
+			FILE* f;
+			parsing::symbol symbol;
+			string token;
+		};
+
+		shared_ptr<module const> parse_module(context* c);
+		shared_ptr<define const> parse_define(context* c);
+		shared_ptr<statement const> parse_statement(context* c);
+		shared_ptr<statement const> parse_symbol_statement(context* c);
+		shared_ptr<define const> parse_symbol_define(context* c);
+		shared_ptr<statement const> parse_form_statement(context* c);
+		shared_ptr<statement const> parse_form_statement_contents(context* c);
+		struct form_statement_tail
+		{
+			form_statement_tail(vector<shared_ptr<parameter const> > const& parameters,
+			vector<shared_ptr<statement const> > const& statements,
+			shared_ptr<parsing::expression const> const& expression)
+				: parameters(parameters), statements(statements), expression(expression) {}
+			vector<shared_ptr<parameter const> > parameters;
+			vector<shared_ptr<statement const> > statements;
+			shared_ptr<parsing::expression const> expression;
+		};
+		shared_ptr<form_statement_tail const> parse_form_statement_tail(context* c);
+		struct prototype_non_thunk_tail
+		{
+			prototype_non_thunk_tail(shared_ptr<parsing::expression const> const&
+					initial_type, vector<shared_ptr<parameter const> > const&
+					subsequent_parameters, shared_ptr<parsing::expression const> const&
+					expression)
+				: initial_type(initial_type), subsequent_parameters(subsequent_parameters),
+				expression(expression) {}
+			shared_ptr<parsing::expression const> initial_type;
+			vector<shared_ptr<parameter const> > subsequent_parameters;
+			shared_ptr<parsing::expression const> expression;
+		};
+		struct form_expression_non_thunk_tail
+		{
+			form_expression_non_thunk_tail(vector<shared_ptr<statement const> > const&
+					subsequent_arguments)
+				: subsequent_arguments(subsequent_arguments) {}
+			vector<shared_ptr<statement const> > subsequent_arguments;
+		};
+		typedef variant<
+			shared_ptr<prototype_non_thunk_tail const>,
+			shared_ptr<form_expression_non_thunk_tail const> > non_thunk_tail;
+		shared_ptr<non_thunk_tail const> parse_non_thunk_tail(context* c);
+		shared_ptr<expression const> parse_define_tail(context* c);
+		struct form_expression_tail
+		{
+			form_expression_tail(vector<shared_ptr<statement const> > const& statements)
+				: statements(statements) {}
+			vector<shared_ptr<statement const> > statements;
+		};
+		shared_ptr<form_expression_tail const> parse_form_expression_tail(context* c);
+		shared_ptr<define const> parse_form_define(context* c);
+		shared_ptr<parameter const> parse_parameter(context* c);
+		shared_ptr<expression const> parse_expression(context* c);
+		shared_ptr<expression const> parse_form_expression(context* c);
+
+		void error(context* c, char const* format, ...)
+		{
+			va_list args;
+			va_start(args, format);
+			vfprintf(stderr, format, args);
+		}
+
+		void read_symbol(context* c)
+		{
+			char ch = fgetc(c->f);
+			while (std::isspace(ch))
+				ch = fgetc(c->f);
+
+			if (ch == '<')
+			{
+				c->symbol = lt;
+				c->token = "<";
+			}
+			else if (ch == '>')
+			{
+				c->symbol = gt;
+				c->token = ">";
+			}
+			else if (ch == ':')
+			{
+				c->symbol = colon;
+				c->token = ":";
+			}
+			else if (ch == '=')
+			{
+				c->symbol = equal;
+				c->token = "=";
+			}
+			else if (std::isalnum(ch) || ch == '_')
+			{
+				c->symbol = ident;
+				c->token = "";
+				while (std::isalnum(ch) || ch == '_')
+				{
+					c->token.push_back(ch);
+					ch = fgetc(c->f);
+				}
+			}
+			else
+			{
+				error(c, "invalid character \'%c\'.", ch);
+			}
+		}
+
+		bool accept(context* c, symbol symbol)
+		{
+			if (c->symbol == symbol)
+			{
+				read_symbol(c);
+				return true;
+			}
+			return false;
+		}
+
+		void expect(context* c, symbol symbol)
+		{
+			if (c->symbol != symbol)
+				error(c, "unexpected: %s", c->token.c_str());
+			read_symbol(c);
+		}
+
+		shared_ptr<identifier const> parse_identifier(context* c)
+		{
+			if (c->symbol == ident)
+			{
+				shared_ptr<identifier> identifier(new string(c->token));
+				read_symbol(c);
+				return identifier;
+			}
+			return shared_ptr<identifier const>();
+		}
+
+		//module = {define}
+		shared_ptr<module const> parse_module(context* c)
+		{
+			read_symbol(c);
+
+			std::vector<shared_ptr<parsing::define const> > defines;
+			while (c->symbol != eof)
+			{
+				shared_ptr<define const> define = parse_define(c);
+				parse_assert(c, define);
+				defines.push_back(define);
+			}
+			shared_ptr<module> module(new parsing::module(defines));
+
+			return module;
+		}
 
 		//define =
-		//	symbol_define
-		//	| form_define
-		struct statement
+		//	form_define
+		//	| symbol_define
+		shared_ptr<define const> parse_define(context* c)
 		{
-			boost::variant<
-				boost::shared_ptr<symbol_define>,
-				boost::shared_ptr<form_define> >
-		};
+			shared_ptr<define const> define;
+			define = (!define ? parse_form_define(c) :
+					shared_ptr<parsing::define const>());
+			define = (!define ? parse_symbol_define(c) :
+					shared_ptr<parsing::define const>());
+			return define;
+		}
 
 		//statement =
-		//	symbol_statement
-		//	| form_statement
-		struct statement
+		//	form_statement
+		//	| symbol_statement
+		shared_ptr<statement const> parse_statement(context* c)
 		{
-			boost::variant<
-				boost::shared_ptr<symbol_statement>,
-				boost::shared_ptr<form_statement> >
-		};
+			shared_ptr<statement const> statement;
+			statement = (!statement ? parse_form_statement(c) :
+					shared_ptr<parsing::statement const>());
+			statement = (!statement ? parse_symbol_statement(c) :
+					shared_ptr<parsing::statement const>());
+			return statement;
+		}
 
 		//symbol_statement =
-		//	symbol_define
-		//	| symbol_expression
+		//	identifier ["=" expression]
+		shared_ptr<statement const> parse_symbol_statement(context* c)
+		{
+			shared_ptr<parsing::identifier const> identifier = parse_identifier(c);
+			if (!identifier)
+				return shared_ptr<parsing::statement const>();
+			if (accept(c, equal))
+			{
+				shared_ptr<parsing::expression const> expression = parse_expression(c);
+				shared_ptr<parsing::target> target(new parsing::target(identifier));
+				shared_ptr<parsing::define> define(new parsing::define(
+						target, expression));
+				shared_ptr<parsing::statement> statement(new parsing::statement(define));
+				return statement;
+			}
+			else
+			{
+				shared_ptr<parsing::expression> expression(new parsing::expression(
+						identifier));
+				shared_ptr<parsing::statement> statement(new parsing::statement(
+							expression));
+				return statement;
+			}
+		}
 
 		//symbol_define =
-		//	ident "=" expression
-
-		//symbol_expression =
-		//	ident
+		//	identifier "=" expression
+		shared_ptr<define const> parse_symbol_define(context* c)
+		{
+			shared_ptr<identifier const> identifier = parse_identifier(c);
+			if (!identifier)
+				return shared_ptr<define const>();
+			expect(c, equal);
+			shared_ptr<expression const> expression = parse_expression(c);
+			shared_ptr<parsing::target> target(new parsing::target(identifier));
+			shared_ptr<parsing::define> define(new parsing::define(
+					target, expression));
+			return define;
+		}
 
 		//form_statement =
-		//	"<" ident form_statement_tail
+		//	"<" form_statement_contents
+		shared_ptr<statement const> parse_form_statement(context* c)
+		{
+			if (!accept(c, lt))
+				return shared_ptr<statement const>();
+			return parse_form_statement_contents(c);
+		}
+
+		//form_statement_contents =
+		//	identifier form_statement_tail
+		//	| {statement} ">"
+		shared_ptr<statement const> parse_form_statement_contents(context* c)
+		{
+			shared_ptr<identifier const> identifier = parse_identifier(c);
+			if (identifier)
+			{
+				shared_ptr<form_statement_tail const> tail =
+					parse_form_statement_tail(c);
+
+				parse_assert(c, tail);
+				if (!tail->parameters.empty())
+				{
+					parse_assert(c, tail->statements.empty());
+
+					shared_ptr<parsing::expression> name(new parsing::expression(
+								identifier));
+					shared_ptr<parsing::prototype> prototype(new parsing::prototype(
+							name, tail->parameters));
+					shared_ptr<parsing::target> target(new parsing::target(prototype));
+					shared_ptr<parsing::define> define(new parsing::define(target,
+								tail->expression));
+					shared_ptr<parsing::statement> statement(new parsing::statement(
+								define));
+					return statement;
+				}
+				else if (!tail->statements.empty())
+				{
+					shared_ptr<parsing::expression> head(new parsing::expression(
+								identifier));
+					shared_ptr<parsing::form> form(new parsing::form(head,
+								tail->statements));
+					shared_ptr<parsing::expression> expression(new parsing::expression(
+								form));
+					shared_ptr<parsing::statement> statement(new parsing::statement(
+								expression));
+					return statement;
+				}
+				else
+				{
+					parse_assert(c, 0);
+				}
+			}
+			else
+			{
+				shared_ptr<expression const> head = parse_expression(c);
+				parse_assert(c, head);
+				vector<shared_ptr<statement const> > statements;
+				while (c->symbol != gt)
+				{
+					shared_ptr<statement const> statement = parse_statement(c);
+					parse_assert(c, statement);
+					statements.push_back(statement);
+				}
+
+				expect(c, gt);
+
+				shared_ptr<parsing::form> form(new parsing::form(head, statements));
+				shared_ptr<parsing::expression> expression(new parsing::expression(
+							form));
+				shared_ptr<parsing::statement> statement(new parsing::statement(
+							expression));
+
+				return statement;
+			}
+		}
 
 		//form_statement_tail =
-		//	form_define_tail
-		//	| form_expression_tail
+		//	">" [define_tail]
+		//	| identifier non_thunk_tail
+		//	| {statement} ">"
+		shared_ptr<form_statement_tail const> parse_form_statement_tail(context* c)
+		{
+			vector<shared_ptr<parameter const> > parameters;
+			vector<shared_ptr<statement const> > statements;
+			shared_ptr<expression const> expression;
 
-		//form_define_tail =
-		//	prototype_tail "=" expression
+			if (c->symbol == gt)
+			{
+				expression = parse_define_tail(c);
+			}
+			else
+			{
+				shared_ptr<identifier const> identifier = parse_identifier(c);
+				if (identifier)
+				{
+					shared_ptr<non_thunk_tail const> tail = parse_non_thunk_tail(c);
+					if (shared_ptr<prototype_non_thunk_tail const> const* ptail =
+							boost::get<shared_ptr<prototype_non_thunk_tail const> >(tail.get()))
+					{
+						shared_ptr<parameter> initial_parameter(new parameter(
+								identifier, (*ptail)->initial_type));
+						parameters.push_back(initial_parameter);
+						for (int i = 0, cnt = int((*ptail)->subsequent_parameters.size());
+								i < cnt; ++i)
+							parameters.push_back((*ptail)->subsequent_parameters[i]);
+						expression = (*ptail)->expression;
+					}
+					else if (shared_ptr<form_expression_non_thunk_tail const> const* ftail =
+							boost::get<shared_ptr<form_expression_non_thunk_tail const> >(
+								tail.get()))
+					{
+						shared_ptr<parsing::expression> expression(new parsing::expression(
+									identifier));
+						shared_ptr<parsing::statement> statement(new parsing::statement(
+									expression));
+						statements.push_back(statement);
+						for (int i = 0, cnt = int((*ftail)->subsequent_arguments.size());
+								i < cnt; ++i)
+							statements.push_back((*ftail)->subsequent_arguments[i]);
+					}
+					else
+					{
+						parse_assert(c, 0);
+					}
+				}
+				else
+				{
+					while (c->symbol != gt)
+					{
+						shared_ptr<statement const> statement = parse_statement(c);
+						parse_assert(c, statement);
+						statements.push_back(statement);
+					}
+					expect(c, gt);
+				}
+			}
 
-		//prototype_tail =
-		//	{parameter} ">"
+			shared_ptr<form_statement_tail> tail(new form_statement_tail(
+					parameters, statements, expression));
+			return tail;
+		}
+
+		//non_thunk_tail =
+		//	":" expression {parameter} ">" define_tail
+		//	| {statement} ">"
+		shared_ptr<non_thunk_tail const> parse_non_thunk_tail(context* c)
+		{
+			if (accept(c, colon))
+			{
+				shared_ptr<expression const> initial_type = parse_expression(c);
+				vector<shared_ptr<parameter const> > subsequent_parameters;
+				while (c->symbol != gt)
+				{
+					shared_ptr<parameter const> parameter = parse_parameter(c);
+					parse_assert(c, parameter);
+					subsequent_parameters.push_back(parameter);
+				}
+				expect(c, gt);
+				shared_ptr<expression const> expression;
+				shared_ptr<prototype_non_thunk_tail> ptail(new prototype_non_thunk_tail(
+						initial_type, subsequent_parameters, expression));
+				shared_ptr<non_thunk_tail> tail(new non_thunk_tail(ptail));
+				return tail;
+			}
+			else
+			{
+				vector<shared_ptr<statement const> > subsequent_arguments;
+				while (c->symbol != gt)
+				{
+					shared_ptr<statement const> statement = parse_statement(c);
+					parse_assert(c, statement);
+					subsequent_arguments.push_back(statement);
+				}
+				expect(c, gt);
+				shared_ptr<form_expression_non_thunk_tail> ftail(new
+					form_expression_non_thunk_tail(subsequent_arguments));
+				shared_ptr<non_thunk_tail> tail(new non_thunk_tail(ftail));
+				return tail;
+			}
+		}
+
+		//define_tail =
+		//	"=" expression
+		shared_ptr<expression const> parse_define_tail(context* c)
+		{
+			if (!accept(c, equal))
+				return shared_ptr<expression const>();
+			shared_ptr<expression const> expression = parse_expression(c);
+			parse_assert(c, expression);
+			return expression;
+		}
 
 		//form_expression_tail =
 		//	{statement} ">"
+		shared_ptr<form_expression_tail const> parse_form_expression_tail(context* c)
+		{
+			vector<shared_ptr<statement const> > statements;
+			while (c->symbol != gt)
+			{
+				shared_ptr<statement const> statement = parse_statement(c);
+				parse_assert(c, statement);
+				statements.push_back(statement);
+			}
+			shared_ptr<form_expression_tail> tail(new form_expression_tail(statements));
+			return tail;
+		}
 
 		//form_define =
-		//	prototype "=" expression
+		//	"<" expression {parameter} ">" = expression
+		shared_ptr<define const> parse_form_define(context* c)
+		{
+			if (!accept(c, lt))
+				return shared_ptr<define const>();
 
-		//prototype =
-		//	"<" ident {parameter} ">"
+			shared_ptr<expression const> name = parse_expression(c);
+			parse_assert(c, name);
+			vector<shared_ptr<parameter const> > parameters;
+			while (c->symbol != gt)
+			{
+				shared_ptr<parameter const> parameter = parse_parameter(c);
+				parse_assert(c, parameter);
+				parameters.push_back(parameter);
+			}
+			shared_ptr<parsing::prototype> prototype(new parsing::prototype(name,
+						parameters));
+
+			expect(c, equal);
+
+			shared_ptr<parsing::expression const> expression = parse_expression(c);
+			shared_ptr<parsing::target> target(new parsing::target(prototype));
+			shared_ptr<parsing::define> define(new parsing::define(target,
+					expression));
+			return define;
+		}
 
 		//parameter =
-		//	ident ":" ident
+		//	identifier ":" identifier
+		shared_ptr<parameter const> parse_parameter(context* c)
+		{
+			shared_ptr<identifier const> name = parse_identifier(c);
+			parse_assert(c, name);
+			shared_ptr<expression const> type = parse_expression(c);
+			parse_assert(c, type);
+			shared_ptr<parsing::parameter> parameter(new parsing::parameter(name, type));
+			return parameter;
+		}
 
 		//expression =
-		//	form_expression
-		//	| symbol_expression
+		//	identifier
+		//	| form_expression
+		shared_ptr<expression const> parse_expression(context* c)
+		{
+			shared_ptr<parsing::identifier const> identifier = parse_identifier(c);
+			if (identifier)
+			{
+				shared_ptr<parsing::expression> expression(new parsing::expression(
+						identifier));
+				return expression;
+			}
+			return parse_form_expression(c);
+		}
 
 		//form_expression =
-		//	"<" ident form_expression_tail
+		//	"<" expression form_expression_tail
+		shared_ptr<expression const> parse_form_expression(context* c)
+		{
+			if (!accept(c, lt))
+				return shared_ptr<expression const>();
+			shared_ptr<expression const> head = parse_expression(c);
+			parse_assert(c, head);
+			shared_ptr<form_expression_tail const> tail = parse_form_expression_tail(c);
+			parse_assert(c, tail);
+			shared_ptr<parsing::form> form(new parsing::form(head, tail->statements));
+			shared_ptr<parsing::expression> expression(new parsing::expression(
+						form));
+			return expression;
+		}
 	}
 }
 

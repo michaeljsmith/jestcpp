@@ -1,13 +1,13 @@
 //program = block "." .
 //
 //block =
-//    ["const" ident "=" number {"," ident "=" number} ";"]
-//    ["var" ident {"," ident} ";"]
-//    {"procedure" ident ";" block ";"} statement .
+//    ["const" identifier "=" number {"," identifier "=" number} ";"]
+//    ["var" identifier {"," identifier} ";"]
+//    {"procedure" identifier ";" block ";"} statement .
 //
 //statement =
-//    [ident ":=" expression
-//    | "call" ident
+//    [identifier ":=" expression
+//    | "call" identifier
 //    | "begin" statement {";" statement} "end"
 //    | "if" condition "then" statement
 //    | "while" condition "do" statement
@@ -22,7 +22,7 @@
 //term = factor {("*"|"/") factor} .
 //
 //factor =
-//    ident
+//    identifier
 //    | number
 //    | "(" expression ")" .
 
@@ -34,71 +34,73 @@ statement =
 	| expression
 
 expression =
-	ident
+	identifier
 	| call
 
 call =
-	"<" ident {statement} ">"
+	"<" identifier {statement} ">"
 
 define =
 	target "=" expression
 
 target =
-	ident
+	identifier
 	| prototype
 
 prototype =
-	"<" ident {parameter} ">"
+	"<" identifier {parameter} ">"
 
 parameter =
-	ident ":" ident
+	identifier ":" identifier
 
 // LL
 module = {define}
 
 define =
-	symbol_define
-	| form_define
+	form_define
+	| symbol_define
 
 statement =
-	symbol_statement
-	| form_statement
+	form_statement
+	| symbol_statement
 
 symbol_statement =
-	symbol_define
-	| symbol_expression
+	identifier ["=" expression]
 
 symbol_define =
-	ident "=" expression
-
-symbol_expression =
-	ident
+	identifier "=" expression
 
 form_statement =
-	"<" ident form_statement_tail
+	"<" form_statement_contents
+
+form_statement_contents =
+	identifier form_statement_tail
+	| expression {statement} ">"
 
 form_statement_tail =
-	form_define_tail
-	| form_expression_tail
+	">" [define_tail]
+	| identifier non_thunk_tail
+	| {statement} ">"
 
-form_define_tail =
-	prototype_tail "=" expression
+non_thunk_tail =
+	":" expression {parameter} ">" define_tail
+	| {statement} ">"
 
-prototype_tail =
-	{parameter} ">"
+define_tail =
+	"=" expression
 
 form_expression_tail =
 	{statement} ">"
 
 form_define =
-	"<" ident form_define_tail
+	"<" expression {parameter} ">" = expression
 
 parameter =
-	ident ":" ident
+	identifier ":" identifier
 
 expression =
-	form_expression
-	| symbol_expression
+	identifier
+	| form_expression
 
 form_expression =
-	"<" ident form_expression_tail
+	"<" expression form_expression_tail
