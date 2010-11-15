@@ -7,58 +7,150 @@
 
 namespace jest
 {
-	namespace detail
-	{
-		template <typename T> void* tag_of() {static int x; return &x;}
-	}
-
 	namespace types
 	{
-		namespace detail {struct symbol_tag {};} void* symbol = jest::detail::tag_of<detail::symbol_tag>();
+		shared_ptr<void const> symbol(new int);
 	}
 
 	struct typed_value
 	{
-		void* type;
-		void* value;
+		shared_ptr<void const> type;
+		shared_ptr<void const> value;
 	};
 
 	namespace types
 	{
-		namespace detail {struct typed_value_tag {};} void* typed_value = jest::detail::tag_of<detail::typed_value_tag>();
+		shared_ptr<void const> typed_value(new int);
 	}
 
 	struct typed_cell
 	{
-		typed_value* head;
-		typed_cell* tail;
+		shared_ptr<typed_value const> head;
+		shared_ptr<typed_cell const> tail;
 	};
 
 	namespace types
 	{
-		namespace detail {struct typed_cell_tag {};} void* typed_cell = jest::detail::tag_of<detail::typed_cell_tag>();
+		shared_ptr<void const> typed_cell(new int);
 	}
 
 	struct pattern
 	{
-		void* type;
-		void* value;
+		shared_ptr<void const> type;
+		shared_ptr<void const> value;
 	};
 
 	namespace pattern_types
 	{
-		namespace detail {struct symbol_tag {};} void* symbol = jest::detail::tag_of<detail::symbol_tag>();
+		shared_ptr<void const> symbol(new int);
+		shared_ptr<void const> variable(new int);
 	}
 
 	struct pattern_cell
 	{
-		pattern* head;
-		pattern_cell* tail;
+		shared_ptr<pattern const> head;
+		shared_ptr<pattern const> tail;
 	};
 
 	namespace pattern_types
 	{
-		namespace detail {struct cell_tag {};} void* cell = jest::detail::tag_of<detail::cell_tag>();
+		shared_ptr<void const> cell(new int);
+	}
+
+	namespace patterns
+	{
+		struct binding
+		{
+			std::string symbol;
+			shared_ptr<void const> type;
+			shared_ptr<void const> value;
+		};
+
+		struct match_result
+		{
+			vector<shared_ptr<binding const> > bindings;
+		};
+
+		shared_ptr<match_result const> match(
+				context* c,
+				shared_ptr<void const> pattern_type, shared_ptr<void const> pattern_value,
+				shared_ptr<void const> type, shared_ptr<void const> value)
+		{
+			if (pattern_type == pattern_types::symbol)
+			{
+				if (type != types::symbol)
+					return shared_ptr<match_result const>();
+				shared_ptr<string const> pattern_symbol =
+					static_pointer_cast<string const>(pattern_value);
+				shared_ptr<string const> symbol =
+					static_pointer_cast<string const>(value);
+				if (pattern_symbol != symbol)
+					return shared_ptr<match_result const>();
+				shared_ptr<match_result> result(new match_result);
+				return result;
+			}
+			else if (pattern_type == pattern_types::variable)
+			{
+				shared_ptr<string const> pattern_symbol =
+					static_pointer_cast<string const>(pattern_value);
+				shared_ptr<match_result> result(new match_result);
+				shared_ptr<patterns::binding> binding(new patterns::binding(
+							pattern_symbol, type, value));
+			}
+			else if (pattern_type == pattern_types::cell)
+			{
+				if (type != types::cell)
+					return shared_ptr<match_result const>();
+				shared_ptr<jest::pattern_cell const> pattern_cell =
+					static_pointer_cast<jest::pattern_cell const>(pattern_value);
+				shared_ptr<typed_cell const> cell =
+					static_pointer_cast<typed_cell const>(value);
+				shared_ptr<match_result const> head_result = match(c,
+						pattern_cell->head->type, pattern_cell->head->value,
+						cell->head->type, cell->head->value);
+				if (!head_result)
+					return head_result;
+				shared_ptr<match_result const> tail_result = match(c,
+						pattern_cell->tail->type, pattern_cell->tail->value,
+						types::typed_cell, cell->tail);
+				if (!tail_result)
+					return tail_result;
+
+				// Combine bindings.
+				shared_ptr<match_result> result(new match_result);
+				result->bindings = head_result->bindings;
+				for (int j = 0, jcnt = int(tail_result.bindings); j < cnt; ++j)
+				{
+					binding const* tail_binding = &tail_result->bindings[i];
+
+					binding const* matching_binding = 0;
+					for (int i = 0, icnt = int(head_result.bindings); i < cnt; ++i)
+					{
+						binding const* head_binding = &head_result->bindings[i];
+
+						if (head_binding->symbol == tail_binding->symbol)
+							matching_binding = head_binding;
+					}
+
+					if (matching_binding)
+					{
+						if (!equal(tail_binding->type, tail_binding->value,
+									tail_binding->type, tail_binding->value))
+							return shared_ptr<match_result const>();
+					}
+					else
+					{
+						result->bindings.push_back(head_binding);
+					}
+				}
+
+				return result;
+			}
+			else
+			{
+				fatal(c, "INTERNAL ERROR: Invalid pattern type.");
+			}
+		}
 	}
 
 #define parse_assert(c, cond) \
