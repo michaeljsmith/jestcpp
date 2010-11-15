@@ -66,7 +66,7 @@ namespace jest
 	{ \
 		if (!cond) \
 		{ \
-			error((c), "internal parsing error: %s", #cond); \
+			fatal((c), "internal parsing error: %s", #cond); \
 		} \
 	} while (0)
 
@@ -76,6 +76,8 @@ namespace jest
 		using boost::variant;
 		using std::vector;
 		using std::string;
+
+		class fatal_error {};
 
 		typedef std::string identifier;
 
@@ -153,6 +155,7 @@ namespace jest
 			FILE* f;
 			parsing::symbol symbol;
 			string token;
+			char ch;
 		};
 
 		shared_ptr<module const> parse_module(context* c);
@@ -214,47 +217,66 @@ namespace jest
 			va_list args;
 			va_start(args, format);
 			vfprintf(stderr, format, args);
+			fputs("\n", stderr);
+		}
+
+		void fatal(context* c, char const* format, ...)
+		{
+			va_list args;
+			va_start(args, format);
+			vfprintf(stderr, format, args);
+			fputs("\n", stderr);
+			throw fatal_error();
 		}
 
 		void read_symbol(context* c)
 		{
-			char ch = fgetc(c->f);
-			while (std::isspace(ch))
-				ch = fgetc(c->f);
+			while (std::isspace(c->ch))
+				c->ch = fgetc(c->f);
 
-			if (ch == '<')
+			if (feof(c->f))
+			{
+				c->symbol = eof;
+				c->token = "";
+			}
+			else if (c->ch == '<')
 			{
 				c->symbol = lt;
 				c->token = "<";
+				c->ch = fgetc(c->f);
 			}
-			else if (ch == '>')
+			else if (c->ch == '>')
 			{
 				c->symbol = gt;
 				c->token = ">";
+				c->ch = fgetc(c->f);
 			}
-			else if (ch == ':')
+			else if (c->ch == ':')
 			{
 				c->symbol = colon;
 				c->token = ":";
+				c->ch = fgetc(c->f);
 			}
-			else if (ch == '=')
+			else if (c->ch == '=')
 			{
 				c->symbol = equal;
 				c->token = "=";
+				c->ch = fgetc(c->f);
 			}
-			else if (std::isalnum(ch) || ch == '_')
+			else if (std::isalnum(c->ch) || c->ch == '_')
 			{
 				c->symbol = ident;
 				c->token = "";
-				while (std::isalnum(ch) || ch == '_')
+				while (std::isalnum(c->ch) || c->ch == '_')
 				{
-					c->token.push_back(ch);
-					ch = fgetc(c->f);
+					c->token.push_back(c->ch);
+					c->ch = fgetc(c->f);
 				}
 			}
 			else
 			{
-				error(c, "invalid character \'%c\'.", ch);
+				fatal(c, "invalid character \'%c\'.", c->ch);
+				c->ch = fgetc(c->f);
 			}
 		}
 
@@ -271,7 +293,7 @@ namespace jest
 		void expect(context* c, symbol symbol)
 		{
 			if (c->symbol != symbol)
-				error(c, "unexpected: %s", c->token.c_str());
+				fatal(c, "unexpected: %s", c->token.c_str());
 			read_symbol(c);
 		}
 
@@ -289,8 +311,6 @@ namespace jest
 		//module = {define}
 		shared_ptr<module const> parse_module(context* c)
 		{
-			read_symbol(c);
-
 			std::vector<shared_ptr<parsing::define const> > defines;
 			while (c->symbol != eof)
 			{
@@ -309,10 +329,8 @@ namespace jest
 		shared_ptr<define const> parse_define(context* c)
 		{
 			shared_ptr<define const> define;
-			define = (!define ? parse_form_define(c) :
-					shared_ptr<parsing::define const>());
-			define = (!define ? parse_symbol_define(c) :
-					shared_ptr<parsing::define const>());
+			define = (!define ? parse_form_define(c) : define);
+			define = (!define ? parse_symbol_define(c) : define);
 			return define;
 		}
 
@@ -322,10 +340,8 @@ namespace jest
 		shared_ptr<statement const> parse_statement(context* c)
 		{
 			shared_ptr<statement const> statement;
-			statement = (!statement ? parse_form_statement(c) :
-					shared_ptr<parsing::statement const>());
-			statement = (!statement ? parse_symbol_statement(c) :
-					shared_ptr<parsing::statement const>());
+			statement = (!statement ? parse_form_statement(c) : statement);
+			statement = (!statement ? parse_symbol_statement(c) : statement);
 			return statement;
 		}
 
@@ -529,7 +545,7 @@ namespace jest
 					subsequent_parameters.push_back(parameter);
 				}
 				expect(c, gt);
-				shared_ptr<expression const> expression;
+				shared_ptr<expression const> expression = parse_define_tail(c);
 				shared_ptr<prototype_non_thunk_tail> ptail(new prototype_non_thunk_tail(
 						initial_type, subsequent_parameters, expression));
 				shared_ptr<non_thunk_tail> tail(new non_thunk_tail(ptail));
@@ -570,10 +586,11 @@ namespace jest
 			vector<shared_ptr<statement const> > statements;
 			while (c->symbol != gt)
 			{
-				shared_ptr<statement const> statement = parse_statement(c);
+				shared_ptr<parsing::statement const> statement = parse_statement(c);
 				parse_assert(c, statement);
 				statements.push_back(statement);
 			}
+			expect(c, gt);
 			shared_ptr<form_expression_tail> tail(new form_expression_tail(statements));
 			return tail;
 		}
@@ -597,6 +614,7 @@ namespace jest
 			shared_ptr<parsing::prototype> prototype(new parsing::prototype(name,
 						parameters));
 
+			expect(c, gt);
 			expect(c, equal);
 
 			shared_ptr<parsing::expression const> expression = parse_expression(c);
@@ -612,6 +630,9 @@ namespace jest
 		{
 			shared_ptr<identifier const> name = parse_identifier(c);
 			parse_assert(c, name);
+
+			expect(c, colon);
+
 			shared_ptr<expression const> type = parse_expression(c);
 			parse_assert(c, type);
 			shared_ptr<parsing::parameter> parameter(new parsing::parameter(name, type));
@@ -648,11 +669,37 @@ namespace jest
 						form));
 			return expression;
 		}
+
+		shared_ptr<parsing::module const> parse_file(char const* filename)
+		{
+			context c;
+			c.f = fopen(filename, "r");
+			if (!c.f)
+			{
+				char buf[1024];
+				perror(buf);
+				fatal(&c, "error opening file \"%s\": %s", filename, buf);
+			}
+
+			c.ch = fgetc(c.f);
+			read_symbol(&c);
+
+			return parse_module(&c);
+		}
 	}
 }
 
 int main(int /*argc*/, char* /*argv*/[])
 {
-	return 0;
+	try
+	{
+		boost::shared_ptr<jest::parsing::module const> module_ast =
+			jest::parsing::parse_file("test/test.jest");
+	}
+	catch (jest::parsing::fatal_error e)
+	{
+		fprintf(stderr, "Uncrecoverable error; exitting.\n");
+		return 1;
+	}
 }
 
