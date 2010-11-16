@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string>
 #include <boost/shared_ptr.hpp>
 #include <boost/variant.hpp>
 #include <vector>
@@ -7,6 +8,17 @@
 
 namespace jest
 {
+	using boost::shared_ptr;
+	using boost::static_pointer_cast;
+	using boost::variant;
+	using std::vector;
+	using std::string;
+
+	namespace types
+	{
+		shared_ptr<void const> type(new int);
+	}
+
 	namespace types
 	{
 		shared_ptr<void const> symbol(new int);
@@ -59,8 +71,76 @@ namespace jest
 
 	namespace patterns
 	{
+		struct context
+		{
+		};
+
+		class fatal_error {};
+
+		void fatal(context* c, char const* format, ...)
+		{
+			va_list args;
+			va_start(args, format);
+			vfprintf(stderr, format, args);
+			fputs("\n", stderr);
+			throw fatal_error();
+		}
+
+		bool equal(context* c,
+			shared_ptr<void const> const& type0,
+			shared_ptr<void const> const& value0,
+			shared_ptr<void const> const& type1,
+			shared_ptr<void const> const& value1)
+		{
+			if (type0 != type1)
+				return false;
+
+			if (type0 == types::type)
+			{
+				// TODO: parameterized types.
+				return value0 == value1;
+			}
+			else if (type0 == types::symbol)
+			{
+				return value0 == value1;
+			}
+			else if (type0 == types::typed_cell)
+			{
+				shared_ptr<typed_cell const> cell0 = static_pointer_cast<
+					typed_cell const>(value0);
+				shared_ptr<typed_cell const> cell1 = static_pointer_cast<
+					typed_cell const>(value1);
+
+				return
+					equal(c,
+						cell0->head->type, cell0->head->value,
+						cell1->head->type, cell1->head->value) &&
+					equal(c,
+						types::typed_cell, cell0->tail,
+						types::typed_cell, cell1->tail);
+			}
+			else if (type0 == types::typed_value)
+			{
+				shared_ptr<typed_value const> val0 = static_pointer_cast<
+					typed_value const>(value0);
+				shared_ptr<typed_value const> val1 = static_pointer_cast<
+					typed_value const>(value1);
+
+				return equal(c,
+					val0->type, val0->value,
+					val1->type, val1->type);
+			}
+			else
+			{
+				fatal(c, "equal() cannot compare values of unrecognized types.");
+			}
+		}
+
 		struct binding
 		{
+			binding(std::string symbol, shared_ptr<void const> type,
+				shared_ptr<void const> value)
+				: symbol(symbol), type(type), value(value) {}
 			std::string symbol;
 			shared_ptr<void const> type;
 			shared_ptr<void const> value;
@@ -95,11 +175,11 @@ namespace jest
 					static_pointer_cast<string const>(pattern_value);
 				shared_ptr<match_result> result(new match_result);
 				shared_ptr<patterns::binding> binding(new patterns::binding(
-							pattern_symbol, type, value));
+							*pattern_symbol, type, value));
 			}
 			else if (pattern_type == pattern_types::cell)
 			{
-				if (type != types::cell)
+				if (type != types::typed_cell)
 					return shared_ptr<match_result const>();
 				shared_ptr<jest::pattern_cell const> pattern_cell =
 					static_pointer_cast<jest::pattern_cell const>(pattern_value);
@@ -119,14 +199,15 @@ namespace jest
 				// Combine bindings.
 				shared_ptr<match_result> result(new match_result);
 				result->bindings = head_result->bindings;
-				for (int j = 0, jcnt = int(tail_result.bindings); j < cnt; ++j)
+				for (int j = 0, jcnt = int(tail_result->bindings.size());
+					j < jcnt; ++j)
 				{
-					binding const* tail_binding = &tail_result->bindings[i];
+					shared_ptr<binding const> tail_binding = tail_result->bindings[j];
 
-					binding const* matching_binding = 0;
-					for (int i = 0, icnt = int(head_result.bindings); i < cnt; ++i)
+					shared_ptr<binding const> matching_binding;
+					for (int i = 0, icnt = int(head_result->bindings.size()); i < icnt; ++i)
 					{
-						binding const* head_binding = &head_result->bindings[i];
+						shared_ptr<binding const> head_binding = head_result->bindings[i];
 
 						if (head_binding->symbol == tail_binding->symbol)
 							matching_binding = head_binding;
@@ -134,13 +215,13 @@ namespace jest
 
 					if (matching_binding)
 					{
-						if (!equal(tail_binding->type, tail_binding->value,
+						if (!equal(c, tail_binding->type, tail_binding->value,
 									tail_binding->type, tail_binding->value))
 							return shared_ptr<match_result const>();
 					}
 					else
 					{
-						result->bindings.push_back(head_binding);
+						result->bindings.push_back(tail_binding);
 					}
 				}
 
@@ -164,11 +245,6 @@ namespace jest
 
 	namespace parsing
 	{
-		using boost::shared_ptr;
-		using boost::variant;
-		using std::vector;
-		using std::string;
-
 		class fatal_error {};
 
 		typedef std::string identifier;
