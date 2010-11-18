@@ -13,6 +13,7 @@ namespace jest
 	using boost::variant;
 	using std::vector;
 	using std::string;
+	using std::pair;
 
 	namespace types
 	{
@@ -71,11 +72,11 @@ namespace jest
 
 	namespace patterns
 	{
+		class fatal_error {};
+
 		struct context
 		{
 		};
-
-		class fatal_error {};
 
 		void fatal(context* c, char const* format, ...)
 		{
@@ -859,6 +860,48 @@ namespace jest
 
 			return parse_module(&c);
 		}
+	}
+
+	namespace evaluation
+	{
+		class fatal_error {};
+
+		void fatal(char const* format, ...)
+		{
+			va_list args;
+			va_start(args, format);
+			vfprintf(stderr, format, args);
+			fputs("\n", stderr);
+			throw fatal_error();
+		}
+
+		struct evaluator
+		{
+			virtual ~evaluator() {}
+			virtual pair<shared_ptr<evaluator const>, shared_ptr<void const> >
+				evaluate(shared_ptr<evaluator const> next_evaluator,
+				shared_ptr<typed_cell const> arguments) = 0;
+		};
+
+		struct fail_evaluator : public evaluator
+		{
+			virtual pair<shared_ptr<evaluator const>, shared_ptr<void const> >
+				evaluate(shared_ptr<evaluator const> next_evaluator,
+				shared_ptr<typed_cell const> arguments)
+			{
+				fatal("Unable to evaluate expression.");
+			}
+		};
+
+		struct pattern_native_evaluator : public evaluator
+		{
+			virtual pair<shared_ptr<evaluator const>, shared_ptr<void const> >
+				evaluate(shared_ptr<evaluator const> next_evaluator,
+				shared_ptr<typed_cell const> arguments)
+			{
+				
+			}
+		};
 	}
 }
 
