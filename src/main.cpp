@@ -133,6 +133,7 @@ namespace jest
 			else
 			{
 				fatal(c, "equal() cannot compare values of unrecognized types.");
+				return false;
 			}
 		}
 
@@ -173,9 +174,11 @@ namespace jest
 			{
 				shared_ptr<string const> pattern_symbol =
 					static_pointer_cast<string const>(pattern_value);
-				shared_ptr<match_result> result(new match_result);
 				shared_ptr<patterns::binding> binding(new patterns::binding(
 							*pattern_symbol, type, value));
+				shared_ptr<match_result> result(new match_result);
+				result->bindings.push_back(binding);
+				return result;
 			}
 			else if (pattern_type == pattern_types::cell)
 			{
@@ -230,6 +233,7 @@ namespace jest
 			else
 			{
 				fatal(c, "INTERNAL ERROR: Invalid pattern type.");
+				return shared_ptr<match_result const>();
 			}
 		}
 	}
@@ -605,6 +609,7 @@ namespace jest
 				else
 				{
 					parse_assert(c, 0);
+					return shared_ptr<statement const>();
 				}
 			}
 			else
@@ -864,7 +869,7 @@ int main(int /*argc*/, char* /*argv*/[])
 		boost::shared_ptr<jest::parsing::module const> module_ast =
 			jest::parsing::parse_file("test/test.jest");
 	}
-	catch (jest::parsing::fatal_error e)
+	catch (jest::parsing::fatal_error /*e*/)
 	{
 		fprintf(stderr, "Uncrecoverable error; exitting.\n");
 		return 1;
