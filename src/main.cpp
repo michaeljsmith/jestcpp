@@ -871,8 +871,7 @@ int main(int /*argc*/, char* /*argv*/[])
 	}
 	catch (jest::parsing::fatal_error /*e*/)
 	{
-		fprintf(stderr, "Uncrecoverable error; exitting.\n");
+		fprintf(stderr, "Unrecoverable error; exitting.\n");
 		return 1;
 	}
 }
-
