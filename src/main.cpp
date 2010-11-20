@@ -880,28 +880,102 @@ namespace jest
 			virtual ~evaluator() {}
 			virtual pair<shared_ptr<evaluator const>, shared_ptr<void const> >
 				evaluate(shared_ptr<evaluator const> next_evaluator,
-				shared_ptr<typed_cell const> arguments) = 0;
+				shared_ptr<typed_cell const> arguments) const = 0;
 		};
 
 		struct fail_evaluator : public evaluator
 		{
 			virtual pair<shared_ptr<evaluator const>, shared_ptr<void const> >
 				evaluate(shared_ptr<evaluator const> next_evaluator,
-				shared_ptr<typed_cell const> arguments)
+				shared_ptr<typed_cell const> arguments) const
 			{
 				fatal("Unable to evaluate expression.");
 			}
 		};
 
-		struct pattern_native_evaluator : public evaluator
+		namespace native_calling
 		{
+			struct caller
+			{
+				virtual pair<shared_ptr<evaluator const>, shared_ptr<void const> >
+					call(shared_ptr<patterns::match_result const> bindings) const = 0;
+			};
+
+			template <typename F> struct pattern_creator
+			{
+				typedef F function_type;
+				typedef typename parameter_types<function_type>::type parameter_types;
+				typedef typename begin<parameter_types>::type parameters_begin;
+				typedef typename end<parameter_types>::type parameters_end;
+
+				shared_ptr<pattern const> operator()()
+				{
+					int parameter_count = function_arity<function_type>::value;
+					std::vector<shared_ptr<string> > labels(parameter_count);
+					for (int = 0; i < parameter_count; ++i)
+					{
+						shared_ptr<string> label(new string(string("prm")
+									+ lexical_cast<string>(i)));
+						labels[i] = label;
+					}
+
+					return recurse<parameters_begin>()(labels.begin());
+				}
+
+				template <typename I> struct recurse
+				{
+					typedef typename deref<I>::type parameter_type;
+					typedef typename next<I>::type next_iterator;
+
+					shared_ptr<pattern const> operator()(
+							vector<shared_ptr<string const> >::iterator symbol_position) const
+					{
+						shared_ptr<string const> symbol = *symbol_position;
+
+						shared_ptr<void const> pattern_type = pattern_types::get_pattern_type(
+								static_cast<parameter_type*>(0));
+						shared_ptr<parsing::pattern> type_pattern(new parsing::pattern(
+									pattern_types::constant, pattern_type));
+						shared_ptr<parsing::pattern> variable_pattern(new parsing::pattern(
+									pattern_types::variable, symbol));
+						shared_ptr<parsing::pattern_cell> cell(new parsing::pattern_cell(
+									type_pattern, variable_pattern));
+
+						shared_ptr<parsing::pattern_cell> list(new parsing::pattern_cell(
+									cell, recurse<next_iterator>()(++symbol_position)));
+						return list;
+					}
+				}
+
+				template <> struct recurse<parameters_end>
+				{
+					shared_ptr<pattern const> operator()() const
+					{
+						shared_ptr<parsing::pattern> pattern = new parsing::pattern(
+								pattern_types::cell, shared_ptr<void>());
+						return pattern;
+					}
+				};
+			};
+		}
+
+		struct native_evaluator : public evaluator
+		{
+			shared_ptr<pattern const> pattern;
+			shared_ptr<native_calling::caller const> caller;
+
 			virtual pair<shared_ptr<evaluator const>, shared_ptr<void const> >
 				evaluate(shared_ptr<evaluator const> next_evaluator,
-				shared_ptr<typed_cell const> arguments)
+				shared_ptr<typed_cell const> arguments) const
 			{
-				
 			}
 		};
+
+		template <typename F>
+			shared_ptr<native_evaluator const> create_native_evaluator(
+					F const& functor)
+			{
+			}
 	}
 }
 
