@@ -5,6 +5,12 @@
 #include <vector>
 #include <cctype>
 #include <cstdarg>
+#include <boost/function.hpp>
+#include <boost/function_types/parameter_types.hpp>
+#include <boost/function_types/function_arity.hpp>
+#include <boost/mpl/begin_end.hpp>
+#include <boost/mpl/deref.hpp>
+#include <boost/mpl/next_prior.hpp>
 
 namespace jest
 {
@@ -14,6 +20,13 @@ namespace jest
 	using std::vector;
 	using std::string;
 	using std::pair;
+	using boost::function;
+	using boost::function_types::parameter_types;
+	using boost::function_types::function_arity;
+	using boost::mpl::begin;
+	using boost::mpl::end;
+	using boost::mpl::deref;
+	using boost::mpl::next;
 
 	namespace types
 	{
@@ -901,6 +914,37 @@ namespace jest
 					call(shared_ptr<patterns::match_result const> bindings) const = 0;
 			};
 
+			template <typename T> shared_ptr<T const> argument_from_bindings(
+					shared_ptr<patterns::match_result const> bindings, string const& label)
+			{
+				int binding_index = -1;
+				for (int i = 0, cnt = int(bindings->bindings.size()); i < cnt; ++i)
+				{
+					if (bindings->bindings[i]->symbol == label)
+						binding_index = i;
+				}
+				if (binding_index == -1)
+					fatal("Internal: missing binding when invoking native function.");
+				shared_ptr<void const> type = bindings->bindings[binding_index]->type;
+				shared_ptr<void const> value = bindings->bindings[binding_index]->value;
+				if (type != get_type_object(static_cast<T*>(0)))
+					fatal("Internal: incorrect type when invoking native function.");
+			}
+
+			template <typename S> struct functor_caller {};
+
+			template <typename T, typename X0> struct functor_caller<T(X0)>
+			{
+				virtual pair<shared_ptr<evaluator const>, shared_ptr<void const> >
+					call(shared_ptr<patterns::match_result const> bindings) const
+					{
+						shared_ptr<T> result = this->f(
+								argument_from_bindings<X0>(bindings, "prm0"));
+					}
+
+				function<T(X0)> f;
+			};
+
 			template <typename F> struct pattern_creator
 			{
 				typedef F function_type;
@@ -922,40 +966,34 @@ namespace jest
 					return recurse<parameters_begin>()(labels.begin());
 				}
 
-				template <typename I> struct recurse
+				template <typename I> shared_ptr<pattern const> recurse(
+						vector<shared_ptr<string const> >::iterator symbol_position) const
 				{
 					typedef typename deref<I>::type parameter_type;
 					typedef typename next<I>::type next_iterator;
 
-					shared_ptr<pattern const> operator()(
-							vector<shared_ptr<string const> >::iterator symbol_position) const
-					{
-						shared_ptr<string const> symbol = *symbol_position;
+					shared_ptr<string const> symbol = *symbol_position;
 
-						shared_ptr<void const> pattern_type = pattern_types::get_pattern_type(
-								static_cast<parameter_type*>(0));
-						shared_ptr<parsing::pattern> type_pattern(new parsing::pattern(
-									pattern_types::constant, pattern_type));
-						shared_ptr<parsing::pattern> variable_pattern(new parsing::pattern(
-									pattern_types::variable, symbol));
-						shared_ptr<parsing::pattern_cell> cell(new parsing::pattern_cell(
-									type_pattern, variable_pattern));
+					shared_ptr<void const> pattern_type = pattern_types::get_type_object(
+							static_cast<parameter_type*>(0));
+					shared_ptr<parsing::pattern> type_pattern(new parsing::pattern(
+								pattern_types::constant, pattern_type));
+					shared_ptr<parsing::pattern> variable_pattern(new parsing::pattern(
+								pattern_types::variable, symbol));
+					shared_ptr<parsing::pattern_cell> cell(new parsing::pattern_cell(
+								type_pattern, variable_pattern));
 
-						shared_ptr<parsing::pattern_cell> list(new parsing::pattern_cell(
-									cell, recurse<next_iterator>()(++symbol_position)));
-						return list;
-					}
+					shared_ptr<parsing::pattern_cell> list(new parsing::pattern_cell(
+								cell, recurse<next_iterator>()(++symbol_position)));
+					return list;
 				}
 
-				template <> struct recurse<parameters_end>
+				template <> shared_ptr<pattern const> recurse<parameters_end>() const
 				{
-					shared_ptr<pattern const> operator()() const
-					{
-						shared_ptr<parsing::pattern> pattern = new parsing::pattern(
-								pattern_types::cell, shared_ptr<void>());
-						return pattern;
-					}
-				};
+					shared_ptr<parsing::pattern> pattern = new parsing::pattern(
+							pattern_types::cell, shared_ptr<void>());
+					return pattern;
+				}
 			};
 		}
 
@@ -975,6 +1013,13 @@ namespace jest
 			shared_ptr<native_evaluator const> create_native_evaluator(
 					F const& functor)
 			{
+				shared_ptr<parsing::pattern const> pattern =
+					native_calling::pattern_creator<F>()();
+				shared_ptr<native_calling::caller> caller = new native_calling::caller(
+						native_calling::functor_caller<F>(functor));
+
+				shared_ptr<native_evaluator> evaluator(new native_evaluator(
+							pattern, caller));
 			}
 	}
 }
