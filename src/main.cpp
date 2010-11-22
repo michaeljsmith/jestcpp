@@ -888,7 +888,7 @@ namespace jest
 		}
 	}
 
-	namespace evaluation
+	namespace compilation
 	{
 		class fatal_error {};
 
@@ -903,7 +903,6 @@ namespace jest
 
 		struct evaluator
 		{
-			virtual ~evaluator() {}
 			virtual pair<shared_ptr<evaluator const>, shared_ptr<void const> >
 				evaluate(shared_ptr<evaluator const> next_evaluator,
 				shared_ptr<typed_cell const> arguments) const = 0;
@@ -1039,6 +1038,69 @@ namespace jest
 				shared_ptr<native_evaluator> evaluator(new native_evaluator(
 							pattern, caller));
 			}
+
+		struct scope : public evaluator
+		{
+			std::vector<shared_ptr<evaluator const> > evaluators;
+		};
+
+		struct module
+		{
+			module(shared_ptr<evaluator const> const& evaluator)
+				: evaulator(evaluator) {}
+			shared_ptr<evaluator const> evaluator;
+		};
+
+		struct module_define_compiler : public static_visitor<>
+		{
+			define_compiler(
+					shared_ptr<compilation::evaluator const> const& evaluator,
+					shared_ptr<parsing::expression const> const& expression)
+				: evaluator(evaluator),
+					expression(expression) {}
+
+			shared_ptr<compilation::evaluator const> evaluator,
+			shared_ptr<parsing::expression const> expression;
+
+			shared_ptr<evaluator const> operator()(
+					shared_ptr<parsing::prototype const> > const& target_prototype) const
+			{
+				shared_ptr<lambda_evaluator> lambda(new lambda_evaluator(
+							evaluator, prototype, expression));
+				return lambda;
+			}
+
+			shared_ptr<evaluator const> operator()(
+					shared_ptr<parsing::identifier const> const& target_symbol) const
+			{
+				assert(0);
+			}
+		}
+
+		shared_ptr<evaluator const> compile_module_entry(
+				shared_ptr<compilation::evaluator const> const& evaluator,
+				shared_ptr<parsing::define const> const& define_syntax)
+		{
+			return apply_visitor(module_define_compiler(evaluator,
+						define_syntax->expression), define_syntax->target);
+		}
+
+		shared_ptr<module const> compile(
+			shared_ptr<compilation::evaluator const> const& evaluator,
+			shared_ptr<parsing::module const> const& module_syntax)
+		{
+			shared_ptr<compilation::scope> scope(new compilation::scope);
+			scope->evaluators.push_back(evaluator);
+
+			for (int i = 0, cnt = int(module_syntax->defines.size()); i < cnt; ++i)
+			{
+				shared_ptr<parsing::define const> define = module_syntax->defines[i];
+				scope->evaluators.push_back(compile_module_entry(scope, define));
+			}
+
+			shared_ptr<compilation::module> module(new compilation::module(scope));
+			return module;
+		}
 	}
 }
 
