@@ -1,31 +1,3 @@
-//program = block "." .
-//
-//block =
-//    ["const" identifier "=" number {"," identifier "=" number} ";"]
-//    ["var" identifier {"," identifier} ";"]
-//    {"procedure" identifier ";" block ";"} statement .
-//
-//statement =
-//    [identifier ":=" expression
-//    | "call" identifier
-//    | "begin" statement {";" statement} "end"
-//    | "if" condition "then" statement
-//    | "while" condition "do" statement
-//    ] .
-//
-//condition =
-//    "odd" expression
-//    | expression ("="|"#"|"<"|"<="|">"|">=") expression .
-//
-//expression = ["+"|"-"] term {("+"|"-") term} .
-//
-//term = factor {("*"|"/") factor} .
-//
-//factor =
-//    identifier
-//    | number
-//    | "(" expression ")" .
-
 // LR
 module = {define}
 

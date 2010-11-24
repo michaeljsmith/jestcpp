@@ -12,6 +12,7 @@
 #include <boost/mpl/deref.hpp>
 #include <boost/mpl/next_prior.hpp>
 #include <boost/lexical_cast.hpp>
+
 namespace jest
 {
 	using boost::shared_ptr;
@@ -96,6 +97,11 @@ namespace jest
 	namespace pattern_types
 	{
 		shared_ptr<void const> cell(new int);
+	}
+
+	namespace values
+	{
+		shared_ptr<string const> enclosing_scope(new string("enclosing_scope"));
 	}
 
 	namespace patterns
@@ -888,7 +894,7 @@ namespace jest
 		}
 	}
 
-	namespace compilation
+	namespace evaluattion
 	{
 		class fatal_error {};
 
@@ -904,18 +910,65 @@ namespace jest
 		struct evaluator
 		{
 			virtual pair<shared_ptr<evaluator const>, shared_ptr<void const> >
-				evaluate(shared_ptr<evaluator const> next_evaluator,
-				shared_ptr<typed_cell const> arguments) const = 0;
+				evaluate(shared_ptr<evaluator const> const& next_evaluator,
+				shared_ptr<void const> const& type,
+				shared_ptr<void const> const& value) const = 0;
 		};
 
 		struct fail_evaluator : public evaluator
 		{
 			virtual pair<shared_ptr<evaluator const>, shared_ptr<void const> >
-				evaluate(shared_ptr<evaluator const> next_evaluator,
-				shared_ptr<typed_cell const> arguments) const
+				evaluate(shared_ptr<evaluator const> const& next_evaluator,
+				shared_ptr<void const> const& type,
+				shared_ptr<void const> const& value) const
 			{
 				fatal("Unable to evaluate expression.");
 			}
+		};
+
+		struct lambda_evaluator : public evaluator
+		{
+			virtual pair<shared_ptr<evaluator const>, shared_ptr<void const> >
+				evaluate(shared_ptr<evaluator const> const& next_evaluator,
+				shared_ptr<void const> const& type,
+				shared_ptr<void const> const& value) const
+				{
+					patterns::context c;
+					shared_ptr<patterns::match_result const> match_result = 
+						shared_ptr<match_result const> match(
+								&c,
+								this->pattern_type, this->pattern_value,
+								type, value);
+
+					if (!match_result)
+						return next_evaluator->evaluate(shared_ptr<evaluator const>(),
+								type, value);
+
+					for (int i = 0, cnt = int(match_result->bindings); i < cnt; ++i)
+					{
+						shared_ptr<patterns::binding const> binding =
+							match_result->bindings[i];
+
+						shared_ptr<string> symbol(new string(symbol));
+						shared_ptr<typed_value> symbol_value(
+								new typed_value(types::symbol, symbol));
+						shared_ptr<jest::pattern> pattern(new jest::pattern(
+									pattern_types::constant, symbol_value));
+
+						shared_ptr<typed_value> argument_value(new typed_value(
+									type, value));
+						shared_ptr<typed_value> quote_value(
+								new typed_value(types::symbol, special_symbols::quote));
+						shared_ptr<typed_cell> value_cell(new typed_cell(
+									argument_value, shared_ptr<typed_value>()));
+						shared_ptr<typed_cell> quote_cell(new typed_cell(
+									quote_value, value_cell));
+						shared_ptr<lambda_evaluator> argument_evaluator(new lambda_evaluator(
+									pattern, quote_cell));
+
+						put it in the scope somehow
+					}
+				}
 		};
 
 		namespace native_calling
@@ -1020,15 +1073,16 @@ namespace jest
 			shared_ptr<native_calling::caller const> caller;
 
 			virtual pair<shared_ptr<evaluator const>, shared_ptr<void const> >
-				evaluate(shared_ptr<evaluator const> next_evaluator,
-				shared_ptr<typed_cell const> arguments) const
-			{
-			}
+				evaluate(shared_ptr<evaluator const> const& next_evaluator,
+				shared_ptr<void const> const& type,
+				shared_ptr<void const> const& value) const
+				{
+					asdf;
+				}
 		};
 
-		template <typename F>
-			shared_ptr<native_evaluator const> create_native_evaluator(
-					F const& functor)
+		template <typename F> shared_ptr<native_evaluator const>
+			create_native_evaluator(F const& functor)
 			{
 				shared_ptr<jest::pattern const> pattern =
 					native_calling::pattern_creator<F>()();
@@ -1051,15 +1105,15 @@ namespace jest
 			shared_ptr<evaluator const> evaluator;
 		};
 
-		struct module_define_compiler : public static_visitor<>
+		struct module_define_evaluator : public static_visitor<>
 		{
-			define_compiler(
-					shared_ptr<compilation::evaluator const> const& evaluator,
+			define_evaluator(
+					shared_ptr<evaluation::evaluator const> const& evaluator,
 					shared_ptr<parsing::expression const> const& expression)
 				: evaluator(evaluator),
 					expression(expression) {}
 
-			shared_ptr<compilation::evaluator const> evaluator,
+			shared_ptr<evaluation::evaluator const> evaluator,
 			shared_ptr<parsing::expression const> expression;
 
 			shared_ptr<evaluator const> operator()(
@@ -1077,28 +1131,28 @@ namespace jest
 			}
 		}
 
-		shared_ptr<evaluator const> compile_module_entry(
-				shared_ptr<compilation::evaluator const> const& evaluator,
+		shared_ptr<evaluator const> evaluate_module_entry(
+				shared_ptr<evaulation::evaluator const> const& evaluator,
 				shared_ptr<parsing::define const> const& define_syntax)
 		{
-			return apply_visitor(module_define_compiler(evaluator,
+			return apply_visitor(module_define_evaulator(evaluator,
 						define_syntax->expression), define_syntax->target);
 		}
 
-		shared_ptr<module const> compile(
-			shared_ptr<compilation::evaluator const> const& evaluator,
+		shared_ptr<module const> evaluate(
+			shared_ptr<evaulation::evaluator const> const& evaluator,
 			shared_ptr<parsing::module const> const& module_syntax)
 		{
-			shared_ptr<compilation::scope> scope(new compilation::scope);
+			shared_ptr<evaulation::scope> scope(new evaulation::scope);
 			scope->evaluators.push_back(evaluator);
 
 			for (int i = 0, cnt = int(module_syntax->defines.size()); i < cnt; ++i)
 			{
 				shared_ptr<parsing::define const> define = module_syntax->defines[i];
-				scope->evaluators.push_back(compile_module_entry(scope, define));
+				scope->evaluators.push_back(evaluate_module_entry(scope, define));
 			}
 
-			shared_ptr<compilation::module> module(new compilation::module(scope));
+			shared_ptr<evaluation::module> module(new evaluation::module(scope));
 			return module;
 		}
 	}
